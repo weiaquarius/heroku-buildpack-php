@@ -116,7 +116,7 @@ module Hatchet
         retry_on_empty: options.fetch(:retry_on_empty, !ENV["HATCHET_DISABLE_EMPTY_RUN_RETRY"]),
         heroku: options[:heroku],
         raw: options[:raw],
-        timeout: options.fetch(:timeout, 60)
+        timeout: options.fetch(:timeout, (ENV["HATCHET_DEFAULT_RUN_TIMEOUT"] || 60).to_i))
       ).call
 
       return run_obj.output
@@ -129,7 +129,7 @@ module Hatchet
         run_obj = Hatchet::HerokuRun.new(
           command,
           app: self,
-          retry_on_empty: options.fetch(:retry_on_empty, !ENV["HATCHET_DISABLE_EMPTY_RUN_RETRY"]),
+          retry_on_empty: options.fetch(:retry_on_empty, (ENV["HATCHET_DEFAULT_RUN_TIMEOUT"] || 60).to_i),
           heroku: options[:heroku],
           raw: options[:raw],
 	        timeout: options.fetch(:timeout, 60)
@@ -198,6 +198,7 @@ module Hatchet
       rescue HerokuRunTimeoutError => e
         if (@timeout_fail_count += 1) <= 3
           message = String.new("Command #{@command} timed out, retrying.")
+          message << "\nTo disable pass in `timeout: 0` or set HATCHET_DEFAULT_RUN_TIMEOUT=0 globally"
           message << "\nfailed_count: #{@timeout_fail_count}"
           message << "\nreleases: #{@app.releases}"
           message << "\n#{caller.join("\n")}"
