@@ -116,7 +116,7 @@ module Hatchet
         retry_on_empty: options.fetch(:retry_on_empty, !ENV["HATCHET_DISABLE_EMPTY_RUN_RETRY"]),
         heroku: options[:heroku],
         raw: options[:raw],
-        timeout: options.fetch(:timeout, (ENV["HATCHET_DEFAULT_RUN_TIMEOUT"] || 60).to_i))
+        timeout: options.fetch(:timeout, (ENV["HATCHET_DEFAULT_RUN_TIMEOUT"] || 60).to_i)
       ).call
 
       return run_obj.output
@@ -129,10 +129,10 @@ module Hatchet
         run_obj = Hatchet::HerokuRun.new(
           command,
           app: self,
-          retry_on_empty: options.fetch(:retry_on_empty, (ENV["HATCHET_DEFAULT_RUN_TIMEOUT"] || 60).to_i),
+          retry_on_empty: options.fetch(:retry_on_empty, !ENV["HATCHET_DISABLE_EMPTY_RUN_RETRY"]),
           heroku: options[:heroku],
           raw: options[:raw],
-	        timeout: options.fetch(:timeout, 60)
+          timeout: options.fetch(:timeout, (ENV["HATCHET_DEFAULT_RUN_TIMEOUT"] || 60).to_i)
         ).call
 
         yield run_obj.output, run_obj.status
