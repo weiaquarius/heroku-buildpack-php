@@ -256,7 +256,7 @@ module Hatchet
         if @timeout_command.empty?
           @stderr.puts "No 'timeout' or 'gtimeout' on $PATH, executing 'heroku run' directly..."
         else
-          command = "#{@timeout_command} --preserve-status #{@timeout_seconds} #{command}"
+          command = "#{@timeout_command} #{@timeout_seconds} #{command}"
         end
       end
       
