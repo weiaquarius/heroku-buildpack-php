@@ -90,3 +90,177 @@ def run!(cmd)
 	raise "Command #{cmd} failed: #{out}" unless $?.success?
 	out
 end
+
+module Hatchet
+	class App
+    def run(cmd_type, command = DefaultCommand, options = {}, &block)
+      case command
+      when Hash
+        options.merge!(command)
+        command = cmd_type.to_s
+      when nil
+        STDERR.puts "Calling App#run with an explicit nil value in the second argument is deprecated."
+        STDERR.puts "You can pass in a hash directly as the second argument now.\n#{caller.join("\n")}"
+        command = cmd_type.to_s
+      when DefaultCommand
+        command = cmd_type.to_s
+      else
+        command = command.to_s
+      end
+
+      allow_run_multi! if @run_multi
+
+      run_obj = Hatchet::HerokuRun.new(
+        command,
+        app: self,
+        retry_on_empty: options.fetch(:retry_on_empty, !ENV["HATCHET_DISABLE_EMPTY_RUN_RETRY"]),
+        heroku: options[:heroku],
+        raw: options[:raw],
+        timeout: options.fetch(:timeout, 60)
+      ).call
+
+      return run_obj.output
+    end
+    def run_multi(command, options = {}, &block)
+      raise "Block required" if block.nil?
+      allow_run_multi!
+
+      run_thread = Thread.new do
+        run_obj = Hatchet::HerokuRun.new(
+          command,
+          app: self,
+          retry_on_empty: options.fetch(:retry_on_empty, !ENV["HATCHET_DISABLE_EMPTY_RUN_RETRY"]),
+          heroku: options[:heroku],
+          raw: options[:raw],
+	        timeout: options.fetch(:timeout, 60)
+        ).call
+
+        yield run_obj.output, run_obj.status
+      end
+      run_thread.abort_on_exception = true
+
+      @run_multi_array << run_thread
+
+      true
+    end
+	end
+  class HerokuRun
+    class HerokuRunEmptyOutputError < RuntimeError; end
+    class HerokuRunTimeoutError < RuntimeError; end
+
+    attr_reader :command
+
+    def initialize(
+      command,
+      app: ,
+      heroku: {},
+      retry_on_empty: !ENV["HATCHET_DISABLE_EMPTY_RUN_RETRY"],
+      raw: false,
+      stderr: $stderr,
+      timeout: 0)
+
+      @raw = raw
+      @app = app
+      @timeout_command = `command -v timeout gtimeout | head -n1`.strip
+      @timeout_seconds = timeout
+      @command = build_heroku_command(command, heroku || {})
+      @retry_on_empty = retry_on_empty
+      @stderr = stderr
+      @output = ""
+      @status = nil
+      @empty_fail_count = 0
+      @timeout_fail_count = 0
+    end
+
+    def output
+      raise "You must run `call` on this object first" unless @status
+      @output
+    end
+
+    def status
+      raise "You must run `call` on this object first" unless @status
+      @status
+    end
+
+    def call
+      begin
+        execute!
+      rescue HerokuRunEmptyOutputError => e
+        if @retry_on_empty and (@empty_fail_count += 1) <=3
+          message = String.new("Empty output from command #{@command}, retrying the command.")
+          message << "\nTo disable pass in `retry_on_empty: false` or set HATCHET_DISABLE_EMPTY_RUN_RETRY=1 globally"
+          message << "\nfailed_count: #{@empty_fail_count}"
+          message << "\nreleases: #{@app.releases}"
+          message << "\n#{caller.join("\n")}"
+          @stderr.puts message
+          retry
+        end
+      rescue HerokuRunTimeoutError => e
+        if (@timeout_fail_count += 1) <= 3
+          message = String.new("Command #{@command} timed out, retrying.")
+          message << "\nfailed_count: #{@timeout_fail_count}"
+          message << "\nreleases: #{@app.releases}"
+          message << "\n#{caller.join("\n")}"
+          @stderr.puts message
+          retry
+        end
+      end
+
+      self
+    end
+
+    private def execute!
+      ShellThrottle.new(platform_api: @app.platform_api).call do |throttle|
+        run_shell!
+        throw(:throttle) if output.match?(/reached the API rate limit/)
+      end
+    end
+
+    private def run_shell!
+      puts "DEBUG #{Time.now.inspect}: Executing #{@command}..."
+      @output = `#{@command}`
+      @status = $?
+      
+      # 'timeout' will, if it terminates a program after the given timeout, return exit status 124
+      # but sometimes, for tests, it's necessary to use a 'timeout' call as part of the test itself
+      # for example, to check whether a web dyno boots successfully
+      # this would also return status 124, and we couldn't distinguish between the two cases
+      # that's why we use --preserve-status - it will report the programs exit status, even if terminated by 'timeout'
+      # since 'timeout' sends a SIGTERM, the exit status reported by the shell will be 128+SIGTERM, so 143
+      
+      puts "DEBUG #{Time.now.inspect}: #{@command} exit status was #{@status}"
+      puts "DEBUG #{Time.now.inspect}: #{@command} output was #{@output}"
+      if @status.exitstatus == 143 && @timeout_seconds > 0 && !@timeout_command.empty?
+        raise HerokuRunTimeoutError
+      elsif @output.empty? # check for timeout first, empty second - a timed out run will likely also have no output!
+        raise HerokuRunEmptyOutputError
+      end
+    end
+
+    private def build_heroku_command(command, options = {})
+      command = command.shellescape unless @raw
+
+      default_options = { "app" => @app.name, "exit-code" => nil }
+      heroku_options_array = (default_options.merge(options)).map do |k,v|
+        # This was a bad interface decision
+        next if v == Hatchet::App::SkipDefaultOption # for forcefully removing e.g. --exit-code, a user can pass this
+
+        arg = "--#{k.to_s.shellescape}"
+        arg << "=#{v.to_s.shellescape}" unless v.nil? # nil means we include the option without an argument
+        arg
+      end
+
+      command = "heroku run #{heroku_options_array.compact.join(' ')} -- #{command}"
+      
+      if @timeout_seconds > 0
+        if @timeout_command.empty?
+          @stderr.puts "No 'timeout' or 'gtimeout' on $PATH, executing 'heroku run' directly..."
+        else
+          command = "#{@timeout_command} --preserve-status #{@timeout_seconds} #{command}"
+        end
+      end
+      
+      command
+    end
+  end
+end
