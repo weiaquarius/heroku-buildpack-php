@@ -218,7 +218,6 @@ module Hatchet
     end
 
     private def run_shell!
-      puts "DEBUG #{Time.now.inspect}: Executing #{@command}..."
       @output = `#{@command}`
       @status = $?
       
@@ -229,8 +228,6 @@ module Hatchet
       # that's why we use --preserve-status - it will report the programs exit status, even if terminated by 'timeout'
       # since 'timeout' sends a SIGTERM, the exit status reported by the shell will be 128+SIGTERM, so 143
       
-      puts "DEBUG #{Time.now.inspect}: #{@command} exit status was #{@status}"
-      puts "DEBUG #{Time.now.inspect}: #{@command} output was #{@output}"
       if @status.exitstatus == 143 && @timeout_seconds > 0 && !@timeout_command.empty?
         raise HerokuRunTimeoutError
       elsif @output.empty? # check for timeout first, empty second - a timed out run will likely also have no output!
