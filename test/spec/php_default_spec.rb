@@ -9,7 +9,7 @@ describe "A PHP application" do
 			app.deploy do |app|
 				series = expected_default_php(ENV["STACK"])
 				expect(app.output).to match(/- php \(#{Regexp.escape(series)}\./)
-				expect(app.run('php -v')).to match(/#{Regexp.escape(series)}\./)
+				expect(app.run('sleep 2', :timeout => 1)).to match(/#{Regexp.escape(series)}\./)
 			end
 		end
 		# FIXME re-use deploy
