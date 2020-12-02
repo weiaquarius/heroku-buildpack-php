@@ -116,7 +116,7 @@ module Hatchet
         retry_on_empty: options.fetch(:retry_on_empty, !ENV["HATCHET_DISABLE_EMPTY_RUN_RETRY"]),
         heroku: options[:heroku],
         raw: options[:raw],
-        timeout: options.fetch(:timeout, 0)
+        timeout: options.fetch(:timeout, 60)
       ).call
 
       return run_obj.output
@@ -132,7 +132,7 @@ module Hatchet
           retry_on_empty: options.fetch(:retry_on_empty, !ENV["HATCHET_DISABLE_EMPTY_RUN_RETRY"]),
           heroku: options[:heroku],
           raw: options[:raw],
-	        timeout: options.fetch(:timeout, 0)
+	        timeout: options.fetch(:timeout, 60)
         ).call
 
         yield run_obj.output, run_obj.status
@@ -240,7 +240,7 @@ module Hatchet
     private def build_heroku_command(command, options = {})
       command = command.shellescape unless @raw
 
-      default_options = { "app" => @app.name, "exit-code" => nil }
+      default_options = { "app" => @app.name, "exit-code" => nil, "no-tty" => nil }
       heroku_options_array = (default_options.merge(options)).map do |k,v|
         # This was a bad interface decision
         next if v == Hatchet::App::SkipDefaultOption # for forcefully removing e.g. --exit-code, a user can pass this
