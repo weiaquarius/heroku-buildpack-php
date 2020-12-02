@@ -116,7 +116,7 @@ module Hatchet
         retry_on_empty: options.fetch(:retry_on_empty, !ENV["HATCHET_DISABLE_EMPTY_RUN_RETRY"]),
         heroku: options[:heroku],
         raw: options[:raw],
-        timeout: options.fetch(:timeout, 60)
+        timeout: options.fetch(:timeout, 0)
       ).call
 
       return run_obj.output
@@ -132,7 +132,7 @@ module Hatchet
           retry_on_empty: options.fetch(:retry_on_empty, !ENV["HATCHET_DISABLE_EMPTY_RUN_RETRY"]),
           heroku: options[:heroku],
           raw: options[:raw],
-	        timeout: options.fetch(:timeout, 60)
+	        timeout: options.fetch(:timeout, 0)
         ).call
 
         yield run_obj.output, run_obj.status
@@ -256,7 +256,7 @@ module Hatchet
         if @timeout_command.empty?
           @stderr.puts "No 'timeout' or 'gtimeout' on $PATH, executing 'heroku run' directly..."
         else
-          command = "#{@timeout_command} #{@timeout_seconds} #{command}"
+          command = "#{@timeout_command} --preserve-status #{@timeout_seconds} #{command}"
         end
       end
       
