@@ -29,7 +29,7 @@ RSpec.configure do |config|
 	config.verbose_retry       = true # show retry status in spec process
 	config.default_retry_count = 2 if ENV['IS_RUNNING_ON_CI'] # retry all tests that fail again...
 	# config.exceptions_to_retry = [Excon::Errors::Timeout] #... if they're caused by these exception types
-	config.fail_fast = 1 if ENV['IS_RUNNING_ON_CI']
+  # config.fail_fast = 1 if ENV['IS_RUNNING_ON_CI']
 
 	config.expect_with :rspec do |c|
 		c.syntax = :expect
@@ -242,8 +242,9 @@ module Hatchet
           Process.kill("TERM", wait_thread.pid)
           @status = wait_thread.value # wait for termination
         end
-        $? = @status # re-set $? for tests that rely on us previously having used backticks
-        raise HerokuRunTimeoutError if @status.signaled? # program got terminated by our SIGTERM
+        status = @status.signaled? ? @status.termsig+128 : @status.exitstatus # a signaled program will not have an exit status, but the shell represents that case as 128+$signal, so e.g. 128+15=143 for SIGTERM
+        `exit #{status}` # FIXME: re-set $? for tests that rely on us previously having used backticks; this should be part of a proper interface to the run result instead but that's a breaking change
+        raise HerokuRunTimeoutError if @status.signaled? # program got terminated by our SIGTERM, raise
         raise HerokuRunEmptyOutputError if @output.empty?
       end
     end
@@ -251,7 +252,7 @@ module Hatchet
     private def build_heroku_command(command, options = {})
       command = command.shellescape unless @raw
 
-      default_options = { "app" => @app.name, "exit-code" => nil, "no-tty" => nil }
+      default_options = { "app" => @app.name, "exit-code" => nil }
       heroku_options_array = (default_options.merge(options)).map do |k,v|
         # This was a bad interface decision
         next if v == Hatchet::App::SkipDefaultOption # for forcefully removing e.g. --exit-code, a user can pass this
