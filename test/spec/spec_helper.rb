@@ -221,7 +221,7 @@ module Hatchet
 
     def run_shell(command, timeout)
       @output = ""
-      puts "DEBUG: running #{command} with timeout #{timeout}"
+      @stderr.puts "DEBUG: running #{command} with timeout #{timeout}"
       Open3.popen3(command) do |stdin, stdout, stderr, wait_thread|
       begin
         Timeout.timeout(timeout) do
@@ -238,15 +238,15 @@ module Hatchet
           rescue IOError # eof? and gets race condition
           end
           @status = wait_thread.value # wait for termination
-          puts "DEBUG: terminated normally"
+          @stderr.puts "DEBUG: terminated normally"
         end
         rescue Timeout::Error
-          puts "DEBUG: timeout"
+          @stderr.puts "DEBUG: timeout"
           # FIXME ps:kill the run as well?
           Process.kill("TERM", wait_thread.pid)
           @status = wait_thread.value # wait for termination
         end
-        puts "DEBUG: status is #{@status}, output is #{@output}"
+        @stderr.puts "DEBUG: status is #{@status}, output is #{@output}"
         status = @status.signaled? ? @status.termsig+128 : @status.exitstatus # a signaled program will not have an exit status, but the shell represents that case as 128+$signal, so e.g. 128+15=143 for SIGTERM
         `exit #{status}` # FIXME: re-set $? for tests that rely on us previously having used backticks; this should be part of a proper interface to the run result instead but that's a breaking change
         raise HerokuRunTimeoutError if @status.signaled? # program got terminated by our SIGTERM, raise
