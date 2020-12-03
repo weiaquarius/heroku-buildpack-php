@@ -222,6 +222,7 @@ module Hatchet
     def run_shell(command, timeout)
       @output = ""
       @stderr.puts "DEBUG: running #{command} with timeout #{timeout}"
+      raise RuntimeError.new("waaaat")
       Open3.popen3(command) do |stdin, stdout, stderr, wait_thread|
       begin
         Timeout.timeout(timeout) do
