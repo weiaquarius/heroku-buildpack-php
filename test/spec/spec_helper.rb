@@ -233,7 +233,7 @@ module Hatchet
           end
           Thread.new do
             until stderr.eof? do
-              puts stderr.gets
+              @stderr.puts stderr.gets
             end
           rescue IOError # eof? and gets race condition
           end
