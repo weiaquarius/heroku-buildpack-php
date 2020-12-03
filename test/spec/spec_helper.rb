@@ -10,6 +10,8 @@ require 'json'
 require 'sem_version'
 require 'shellwords'
 require 'excon'
+require 'open3'
+require 'timeout'
 
 ENV['RACK_ENV'] = 'test'
 
@@ -161,8 +163,7 @@ module Hatchet
 
       @raw = raw
       @app = app
-      @timeout_command = `command -v timeout gtimeout | head -n1`.strip
-      @timeout_seconds = timeout
+      @timeout = timeout
       @command = build_heroku_command(command, heroku || {})
       @retry_on_empty = retry_on_empty
       @stderr = stderr
@@ -197,7 +198,8 @@ module Hatchet
         end
       rescue HerokuRunTimeoutError => e
         if (@timeout_fail_count += 1) <= 3
-          message = String.new("Command #{@command} timed out, retrying.")
+          message = String.new("Command #{@command} timed out after #{@timeout}, retrying.")
+          message << "\nOutput until moment of termination was: #{@output}"
           message << "\nTo disable pass in `timeout: 0` or set HATCHET_DEFAULT_RUN_TIMEOUT=0 globally"
           message << "\nfailed_count: #{@timeout_fail_count}"
           message << "\nreleases: #{@app.releases}"
@@ -217,21 +219,32 @@ module Hatchet
       end
     end
 
-    private def run_shell!
-      @output = `#{@command}`
-      @status = $?
-      
-      # 'timeout' will, if it terminates a program after the given timeout, return exit status 124
-      # but sometimes, for tests, it's necessary to use a 'timeout' call as part of the test itself
-      # for example, to check whether a web dyno boots successfully
-      # this would also return status 124, and we couldn't distinguish between the two cases
-      # that's why we use --preserve-status - it will report the programs exit status, even if terminated by 'timeout'
-      # since 'timeout' sends a SIGTERM, the exit status reported by the shell will be 128+SIGTERM, so 143
-      
-      if @status.exitstatus == 143 && @timeout_seconds > 0 && !@timeout_command.empty?
-        raise HerokuRunTimeoutError
-      elsif @output.empty? # check for timeout first, empty second - a timed out run will likely also have no output!
-        raise HerokuRunEmptyOutputError
+    def run_shell(command, timeout)
+      @output = ""
+      Open3.popen3(command) do |stdin, stdout, stderr, wait_thread|
+      begin
+        Timeout.timeout(timeout) do
+          Thread.new do
+            until stdout.eof? do
+              @output += stdout.gets
+            end
+          rescue IOError # eof? and gets race condition
+          end
+          Thread.new do
+            until stderr.eof? do
+              puts stderr.gets
+            end
+          rescue IOError # eof? and gets race condition
+          end
+          @status = wait_thread.value # wait for termination
+        end
+        rescue Timeout::Error
+          Process.kill("TERM", wait_thread.pid)
+          @status = wait_thread.value # wait for termination
+        end
+        $? = @status # re-set $? for tests that rely on us previously having used backticks
+        raise HerokuRunTimeoutError if @status.signaled? # program got terminated by our SIGTERM
+        raise HerokuRunEmptyOutputError if @output.empty?
       end
     end
 
@@ -248,17 +261,7 @@ module Hatchet
         arg
       end
 
-      command = "heroku run #{heroku_options_array.compact.join(' ')} -- #{command}"
-      
-      if @timeout_seconds > 0
-        if @timeout_command.empty?
-          @stderr.puts "No 'timeout' or 'gtimeout' on $PATH, executing 'heroku run' directly..."
-        else
-          command = "#{@timeout_command} --preserve-status #{@timeout_seconds} #{command}"
-        end
-      end
-      
-      command
+      "heroku run #{heroku_options_array.compact.join(' ')} -- #{command}"
     end
   end
 end
